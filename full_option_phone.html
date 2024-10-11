@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensor Data Graphs</title>
+    <!-- Firebase -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <!-- Date adapter for Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+    <style>
+        /* CSS for responsive canvas */
+        canvas {
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* General body styling */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px 5px; /* Reduced padding for better fit on mobile */
+            background-color: #f4f4f4;
+        }
+
+        .chart-container {
+            width: 100%;
+            margin-bottom: 20px; /* Reduced margin for mobile */
+            height: 300px; /* Default chart height */
+        }
+
+        /* Media query for smaller screens */
+        @media only screen and (max-width: 600px) {
+            .chart-container {
+                height: 250px; /* Adjust chart height for mobile screens */
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="chart-container">
+        <canvas id="temperatureChart"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="humidityChart"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="oxygenChart"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="heartRateChart"></canvas>
+    </div>
+
+<script>
+    // Your Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyCa8Zl1aMVWQYy5v_6K0TBR4bgWNRXe9DM",
+        authDomain: "fir-iot-9d8f7.firebaseapp.com",
+        databaseURL: "https://fir-iot-9d8f7-default-rtdb.firebaseio.com",
+        projectId: "fir-iot-9d8f7",
+        storageBucket: "fir-iot-9d8f7.appspot.com",
+        messagingSenderId: "244336984642",
+        appId: "1:244336984642:web:751a956f5ee52e718c23db",
+        measurementId: "G-H17FJDT07B"
+    };
+
+    // Initialize Firebase
+    const app = firebase.initializeApp(firebaseConfig);
+    const database = firebase.database(app);
+    let charts = {}; // Hold chart instances
+
+    // Function to continuously check and delete data older than 7 days for a given path
+    function deleteOldData(variable) {
+        const dataRef = database.ref('FirebaseIOT/' + variable);
+
+        dataRef.on('value', (snapshot) => {
+            const currentTime = Date.now();
+            const sevenDaysAgo = currentTime - (7 * 24 * 60 * 60 * 1000); // 7 days in milliseconds
+
+            snapshot.forEach((childSnapshot) => {
+                const dataPoint = childSnapshot.val();
+                const timestamp = new Date(dataPoint.timestamp).getTime();
+
+                // Delete data older than 7 days
+                if (timestamp < sevenDaysAgo) {
+                    childSnapshot.ref.remove().catch((error) => {
+                        console.error(`Error deleting old data for ${variable}: `, error);
+                    });
+                }
+            });
+        }, (error) => {
+            console.error(`Error fetching data for ${variable}: `, error);
+        });
+    }
+
+    // Function to fetch and render data from Firebase for a specific variable
+    function fetchDataAndRenderChart(variable, label, unit, chartId, chartColor) {
+        const dataRef = database.ref('FirebaseIOT/' + variable);
+
+        dataRef.on('value', (snapshot) => {
+            const dataPoints = [];
+            snapshot.forEach((childSnapshot) => {
+                const dataPoint = childSnapshot.val();
+                dataPoints.push({
+                    x: new Date(dataPoint.timestamp),
+                    y: dataPoint.value
+                });
+            });
+            renderChart(dataPoints, label, unit, chartId, chartColor);
+        }, (error) => {
+            console.error(`Error fetching data for ${variable}: `, error);
+        });
+    }
+
+    // Function to render the chart
+    function renderChart(dataPoints, label, unit, chartId, chartColor) {
+        // If the chart already exists, destroy it before creating a new one
+        if (charts[chartId]) {
+            charts[chartId].destroy();
+        }
+
+        const config = {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: `${label} (${unit})`,
+                    data: dataPoints,
+                    borderColor: chartColor, // Use the specified color for each chart
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true, // Make it responsive
+                maintainAspectRatio: false, // Prevent distortion on resize
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'day'
+                        },
+                        title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: `${label} (${unit})`
+                        }
+                    }
+                }
+            }
+        };
+
+        const ctx = document.getElementById(chartId).getContext('2d');
+        charts[chartId] = new Chart(ctx, config); // Store the chart instance in the charts object
+    }
+
+    // Fetch and render data for all variables on page load
+    window.onload = function() {
+        // Delete old data for each variable
+        deleteOldData('temperature');
+        deleteOldData('humidity');
+        deleteOldData('oxygen');
+        deleteOldData('heart rate');
+
+        // Fetch and render data for each variable with their respective colors
+        fetchDataAndRenderChart('temperature', 'Temperature', '°C', 'temperatureChart', 'rgba(255, 99, 132, 1)');
+        fetchDataAndRenderChart('humidity', 'Humidity', '%', 'humidityChart', 'rgba(54, 162, 235, 1)');
+        fetchDataAndRenderChart('oxygen', 'Oxygen Levels', '%', 'oxygenChart', 'rgba(75, 192, 192, 1)');
+        fetchDataAndRenderChart('heart rate', 'Heart Rate', 'bpm', 'heartRateChart', 'rgba(153, 102, 255, 1)');
+    };
+</script>
+
+</body>
+</html>
